@@ -1,101 +1,94 @@
 #ifndef GRAPH_CUH
 #define GRAPH_CUH
 
-#include "Constants.cuh"
-#include <assert.h>
-#include <iomanip>
-#include <iostream>
+#include "PerlinNoiseGenerator.cuh"
+#include <array>
+#include <sstream>
+#include <utility>
 #include <vector>
 
 namespace graph
 {
-    using Node = size_t;
+    using VertexID = uint;
     using Weight = uint;
 
-    class Graph
+    class Graph // Undirected graph.
     {
     public:
         // ----------------------------------------------------------------
         // --- Public class constants
-        static constexpr Weight NO_CONNECTION = static_cast<Weight>(-1);
-        static constexpr const char *NO_CONNECTION_STR = "INF";
+        static constexpr Weight INFINITE_WEIGHT = std::numeric_limits<Weight>::max();
+        static constexpr VertexID INVALID_VERTEX = std::numeric_limits<VertexID>::max();
+        static constexpr std::array<std::pair<int, int>, 8> PATHFINDING_GRID_DIRECTIONS =
+            {{
+                {-1, 0},  // Up.
+                {1, 0},   // Down.
+                {0, -1},  // Left.
+                {0, 1},   // Right.
+                {-1, -1}, // Up-left diagonal.
+                {-1, 1},  // Up-right diagonal.
+                {1, -1},  // Down-left diagonal.
+                {1, 1}    // Down-right diagonal.
+            }};
 
         // ----------------------------------------------------------------
         // --- Public methods
-        __host__ Graph(size_t nodesCount = 0) : m_nodesCount(nodesCount)
+        __host__ Graph() {}
+
+        [[nodiscard]] __host__ static Graph *fromPerlinNoise(
+            const procedural_generation::PerlinNoiseGenerator &generator);
+
+        __host__ Weight getWeight(VertexID vertex, VertexID neighbor) const;
+
+        __host__ std::string toString() const;
+
+        /*
+        Converts the graph into a pathfinding grid representation.
+        Requires the graph to originate from a grid structure,
+        meaning each node must have exactly 8 ordered neighbors.
+        This method is not compatible with arbitrary graphs and
+        is closely tied to the Perlin Noise Generator class.
+        Following functions are related to this context:
+        */
+        using PathfindingGrid = std::vector<std::vector<Weight>>;
+
+        __host__ PathfindingGrid asGrid(size_t rows, size_t columns) const;
+
+        __host__ __device__ static bool isValidDirection(int row, int column, size_t rows, size_t columns)
         {
-            if (nodesCount == 0)
-            {
-                throw std::invalid_argument("nodesCount must be greater than 0.");
-            }
-
-            nodes = new Node[nodesCount];
-            for (size_t i = 0; i < nodesCount; i++)
-            {
-                nodes[i] = i;
-            }
-
-            connections = new Weight[nodesCount * nodesCount];
-            for (size_t i = 0; i < nodesCount * nodesCount; i++)
-            {
-                connections[i] = NO_CONNECTION;
-            }
+            // Check if the direction is within the bounds of the grid.
+            return row >= 0 && row < rows && column >= 0 && column < columns;
         }
 
-        __host__ __device__ Graph(const Graph &other) = delete;
-
-        __host__ __device__ Graph &operator=(const Graph &other) = delete;
-
-        __host__ __device__ size_t nodesCount() const
+        __host__ static std::pair<size_t, size_t> indexToCoordinates(size_t index, size_t columns)
         {
-            return m_nodesCount;
+            // Transform a 1D index to 2D coordinates.
+            size_t row = index / columns;
+            size_t column = index % columns;
+            return std::make_pair(row, column);
         }
 
-        __host__ __device__ void addConnection(Node nodeIdA, Node nodeIdB, Weight weight)
+        __host__ static size_t coordinatesToIndex(size_t row, size_t column, size_t columns)
         {
-            checkNode(nodeIdA);
-            checkNode(nodeIdB);
-            connections[nodeIdA * m_nodesCount + nodeIdB] = weight;
-        }
-
-        __host__ __device__ Weight getConnection(Node nodeIdA, Node nodeIdB) const
-        {
-            checkNode(nodeIdA);
-            checkNode(nodeIdB);
-            return connections[nodeIdA * m_nodesCount + nodeIdB];
-        }
-
-        __host__ __device__ bool areConnected(Node nodeIdA, Node nodeIdB) const
-        {
-            checkNode(nodeIdA);
-            checkNode(nodeIdB);
-            return connections[nodeIdA * m_nodesCount + nodeIdB] != NO_CONNECTION;
-        }
-
-        __host__ std::vector<Node> getNeighbors(Node nodeId) const
-        {
-            checkNode(nodeId);
-            std::vector<Node> neighbors;
-            for (size_t i = 0; i < m_nodesCount; i++)
-            {
-                if (areConnected(nodeId, i))
-                {
-                    neighbors.push_back(i);
-                }
-            }
-            return neighbors;
-        }
-
-        __host__ ~Graph()
-        {
-            delete[] nodes;
-            delete[] connections;
+            // Transform 2D coordinates to a 1D index.
+            return row * columns + column;
         }
 
         // ----------------------------------------------------------------
         // --- Public attributes
-        Node *nodes;
-        Weight *connections;
+        std::vector<VertexID> adjacencyList; // Neighbors of each vertex.
+        /*
+         *
+         *  45, 89, 23, ..., 21, 34, ..., 66, ...
+         *  ^                ^            ^
+         *  |0_______________|1___________|2_____ Neighbors for the vertices 0, 1, 2, ...
+         *
+         */
+        std::vector<Weight> weights;    // Weights of each edge.
+        std::vector<uint> edgesOffsets; // Offset to the adjacency list of each vertex.
+        std::vector<uint> edgesSize;    // Number of edges of each vertex.
+        size_t vertexCount;
+        size_t edgeCount;
 
     private:
         // ----------------------------------------------------------------
@@ -103,46 +96,10 @@ namespace graph
 
         // ----------------------------------------------------------------
         // --- Private methods
-        __host__ __device__ void checkNode(Node nodeId) const
-        {
-            assert(nodeId < m_nodesCount);
-        }
 
         // ----------------------------------------------------------------
         // --- Private attributes
-        size_t m_nodesCount;
     };
-
-    __host__ inline std::ostream &operator<<(std::ostream &out, const Graph &graph)
-    {
-        const size_t WIDTH = 5;
-
-        out << std::setw(WIDTH) << ' ';
-        for (size_t i = 0; i < graph.nodesCount(); i++)
-        {
-            out << std::setw(WIDTH) << graph.nodes[i];
-        }
-        out << '\n';
-
-        for (size_t i = 0; i < graph.nodesCount(); i++)
-        {
-            out << std::setw(WIDTH) << graph.nodes[i];
-            for (size_t j = 0; j < graph.nodesCount(); j++)
-            {
-                if (graph.areConnected(i, j))
-                {
-                    out << std::setw(WIDTH) << graph.getConnection(i, j);
-                }
-                else
-                {
-                    out << std::setw(WIDTH) << Graph::NO_CONNECTION_STR;
-                }
-            }
-            out << '\n';
-        }
-        return out;
-    }
-
 } // namespace graph
 
 #endif // GRAPH_CUH
