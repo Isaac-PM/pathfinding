@@ -3,49 +3,52 @@
 
 #include <iostream>
 
-enum TimeUnit
+namespace benchmarking
 {
-    SECONDS,
-    MILLISECONDS,
-    CLOCK_TICKS
-};
+    enum TimeUnit
+    {
+        SECONDS,
+        MILLISECONDS,
+        CLOCK_TICKS
+    };
 
-class Timer
-{
-public:
-    // ----------------------------------------------------------------
-    // --- Public class constants
+    class Timer
+    {
+    public:
+        // ----------------------------------------------------------------
+        // --- Public class constants
 
-    // ----------------------------------------------------------------
-    // --- Public methods
-    __host__ Timer();
+        // ----------------------------------------------------------------
+        // --- Public methods
+        __host__ Timer();
 
-    __host__ ~Timer() = default;
+        __host__ ~Timer() = default;
 
-    __host__ void resume();
+        __host__ void resume();
 
-    __host__ void pause();
+        __host__ void pause();
 
-    __host__ void reset();
+        __host__ void reset();
 
-    __host__ double elapsed(TimeUnit timeUnit = TimeUnit::SECONDS);
+        __host__ double elapsed(TimeUnit timeUnit = TimeUnit::SECONDS);
 
-    __host__ double print(std::string task, TimeUnit timeUnit = TimeUnit::MILLISECONDS);
+        __host__ double print(std::string task, TimeUnit timeUnit = TimeUnit::MILLISECONDS);
 
-    // ----------------------------------------------------------------
-    // --- Public attributes
+        // ----------------------------------------------------------------
+        // --- Public attributes
 
-private:
-    // ----------------------------------------------------------------
-    // --- Private class constants
+    private:
+        // ----------------------------------------------------------------
+        // --- Private class constants
 
-    // ----------------------------------------------------------------
-    // --- Private methods
-    clock_t m_start;
-    clock_t m_end;
+        // ----------------------------------------------------------------
+        // --- Private methods
+        clock_t m_start;
+        clock_t m_end;
 
-    // ----------------------------------------------------------------
-    // --- Private attributes
-};
+        // ----------------------------------------------------------------
+        // --- Private attributes
+    };
+} // namespace benchmarking
 
 #endif // TIMER_H

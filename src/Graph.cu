@@ -89,30 +89,4 @@ namespace graph
         }
         return oss.str();
     }
-
-    __host__ Graph::PathfindingGrid Graph::asGrid(size_t rows, size_t columns) const
-    {
-        PathfindingGrid grid(rows, std::vector<Weight>(columns, INFINITE_WEIGHT));
-
-        for (size_t vertex = 0; vertex < vertexCount; ++vertex)
-        {
-            std::pair<size_t, size_t> coordinates = indexToCoordinates(vertex, columns);
-            size_t edgeStart = edgesOffsets[vertex];
-            size_t edgeEnd = edgeStart + edgesSize[vertex];
-
-            for (size_t edgeIndex = edgeStart; edgeIndex < edgeEnd; ++edgeIndex)
-            {
-                VertexID neighbor = adjacencyList[edgeIndex];
-                Weight weight = weights[edgeIndex];
-
-                std::pair<size_t, size_t> neighborCoordinates = indexToCoordinates(neighbor, columns);
-                size_t neighborRow = neighborCoordinates.first;
-                size_t neighborColumn = neighborCoordinates.second;
-
-                grid[neighborRow][neighborColumn] = weight;
-            }
-        }
-        return grid;
-    }
-
-}; // namespace graph
+} // namespace graph

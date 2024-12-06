@@ -4,9 +4,11 @@
 #include "PPMImage.cuh"
 #include "Timer.cuh"
 
+using namespace benchmarking;
+using namespace geometry;
 using namespace graph;
-using namespace procedural_generation;
 using namespace graphics;
+using namespace procedural_generation;
 
 enum PathGenerationMethod
 {
@@ -23,13 +25,13 @@ __host__ inline void paintPath(const std::vector<VertexID> &path, PPMImage *imag
 
     for (VertexID vertex : path)
     {
-        std::pair<size_t, size_t> coordinates = Graph::indexToCoordinates(vertex, image->columns());
+        Coordinates coordinates = Graph::indexToCoordinates(vertex, image->columns());
         for (int dx = -1; dx <= 1; ++dx) // Draw a 3x3 square around the vertex.
         {
             for (int dy = -1; dy <= 1; ++dy)
             {
-                size_t x = coordinates.first + dx;
-                size_t y = coordinates.second + dy;
+                size_t x = coordinates.row + dx;
+                size_t y = coordinates.column + dy;
                 if (x < image->columns() && y < image->rows())
                 {
                     if (method == CPU_DIJKSTRA || method == CPU_A_STAR)
@@ -48,6 +50,8 @@ __host__ inline void paintPath(const std::vector<VertexID> &path, PPMImage *imag
 
 int main(void)
 {
+    // nodos aleatorios
+
     PerlinNoiseGenerator *map = PerlinNoiseGenerator::generateAndSave(); // Represents a 2D topographical map.
     Graph *graph = Graph::fromPerlinNoise(*map);                         // Generate a graph based on the Perlin noise map.
 
@@ -57,7 +61,7 @@ int main(void)
     Timer timer;
     std::vector<VertexID> cudaShortestPath = pathfinding::dijkstraCUDA(*graph, startingVertex, endingVertex, timer);
     std::cout << "CUDA Dijkstra's algorithm took " << timer.elapsed(TimeUnit::MILLISECONDS) << " ms\n";
-    std::vector<VertexID> cpuShortestPath = pathfinding::vectorFieldPathfindingCUDA(*graph, PerlinNoiseGenerator::GRID_ROWS, PerlinNoiseGenerator::GRID_COLUMNS, timer);
+    std::vector<VertexID> cpuShortestPath = pathfinding::flowFieldPathfindingAccelerated(*graph, *map, {0, 0}, {999, 999}, timer);
     std::cout << "CPU Dijkstra's algorithm took " << timer.elapsed(TimeUnit::MILLISECONDS) << " ms\n";
 
     PPMImage *graphAsImage = map->asTerrainLikeImage();

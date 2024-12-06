@@ -2,6 +2,7 @@
 #define GRAPH_CUH
 
 #include "PerlinNoiseGenerator.cuh"
+#include "Vec2.cuh"
 #include <array>
 #include <sstream>
 #include <utility>
@@ -42,33 +43,21 @@ namespace graph
 
         __host__ std::string toString() const;
 
-        /*
-        Converts the graph into a pathfinding grid representation.
-        Requires the graph to originate from a grid structure,
-        meaning each node must have exactly 8 ordered neighbors.
-        This method is not compatible with arbitrary graphs and
-        is closely tied to the Perlin Noise Generator class.
-        Following functions are related to this context:
-        */
-        using PathfindingGrid = std::vector<std::vector<Weight>>;
-
-        __host__ PathfindingGrid asGrid(size_t rows, size_t columns) const;
-
         __host__ __device__ static bool isValidDirection(int row, int column, size_t rows, size_t columns)
         {
             // Check if the direction is within the bounds of the grid.
             return row >= 0 && row < rows && column >= 0 && column < columns;
         }
 
-        __host__ static std::pair<size_t, size_t> indexToCoordinates(size_t index, size_t columns)
+        __host__ __device__ static procedural_generation::Coordinates indexToCoordinates(size_t index, size_t columns)
         {
             // Transform a 1D index to 2D coordinates.
             size_t row = index / columns;
             size_t column = index % columns;
-            return std::make_pair(row, column);
+            return {row, column};
         }
 
-        __host__ static size_t coordinatesToIndex(size_t row, size_t column, size_t columns)
+        __host__ __device__ static size_t coordinatesToIndex(size_t row, size_t column, size_t columns)
         {
             // Transform 2D coordinates to a 1D index.
             return row * columns + column;

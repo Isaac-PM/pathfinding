@@ -7,10 +7,9 @@
 #include <algorithm>
 #include <iostream>
 #include <limits>
-#include <queue>
+#include <memory>
 #include <queue>
 #include <vector>
-#include <memory>
 
 #define cudaCheckError()                                                                 \
     {                                                                                    \
@@ -22,126 +21,225 @@
         }                                                                                \
     }
 
-// __host__ __device__ inline size_t toIndex(size_t row, size_t column, size_t columns)
-// {
-//     // Transform 2D coordinates to a 1D index.
-//     return row * columns + column;
-// }
-
 namespace pathfinding
 {
+    using namespace benchmarking;
+    using namespace geometry;
     using namespace graph;
-    using namespace procedural_generation;
     using namespace graphics;
+    using namespace procedural_generation;
 
     const size_t MAX_THREADS_PER_BLOCK = 1024;
 
     // ----------------------------------------------------------------
     // --- Vector field pathfinding algorithm CPU + CUDA
+    /*
+    Based on:
+        - "How do vector field pathfinding algorithm work?" @ https://www.youtube.com/watch?v=ZJZu3zLMYAc
+        - "How Flow Field Pathfinding Works - Flow Fields in Unity ep. 1" @ https://www.youtube.com/watch?v=zr6ObNVgytk&t=600s
+        - "Vector-Flow-Field" @ https://github.com/Woestijnbok/Vector-Flow-Field
+    */
 
-    __global__ inline void xxxxxx()
+    enum class FlowFieldDirection
     {
+        NONE,
+        UP,
+        DOWN,
+        LEFT,
+        RIGHT,
+        UP_LEFT,
+        UP_RIGHT,
+        DOWN_LEFT,
+        DOWN_RIGHT
+    };
+
+    __global__ inline void generateFlowField(
+        const Weight *__restrict__ integrationField,
+        FlowFieldDirection *__restrict__ flowField,
+        size_t rows,
+        size_t columns,
+        size_t totalCells)
+    {
+        int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+        if (idx >= totalCells)
+        {
+            return;
+        }
+
+        const int directions[8][2] = {
+            {-1, 0},  // UP
+            {1, 0},   // DOWN
+            {0, -1},  // LEFT
+            {0, 1},   // RIGHT
+            {-1, -1}, // UP_LEFT
+            {-1, 1},  // UP_RIGHT
+            {1, -1},  // DOWN_LEFT
+            {1, 1}    // DOWN_RIGHT
+        };
+
+        Coordinates currentCoordinates = Graph::indexToCoordinates(idx, columns);
+        FlowFieldDirection bestDirection = FlowFieldDirection::NONE;
+        Weight minWeight = INFINITY;
+        for (size_t i = 0; i < 8; ++i)
+        {
+            int neighborRow = currentCoordinates.row + directions[i][0];
+            int neighborCol = currentCoordinates.column + directions[i][1];
+
+            if (Graph::isValidDirection(neighborRow, neighborCol, rows, columns))
+            {
+                int neighborIdx = neighborRow * columns + neighborCol;
+                Weight neighborWeight = integrationField[neighborIdx];
+                if (neighborWeight < minWeight)
+                {
+                    minWeight = neighborWeight;
+                    bestDirection = static_cast<FlowFieldDirection>(i + 1);
+                }
+            }
+        }
+        flowField[idx] = bestDirection;
     }
 
-    [[nodiscard]] __host__ inline std::vector<VertexID> vectorFieldPathfindingCUDA(
+    [[nodiscard]] __host__ inline std::vector<VertexID> flowFieldPathfindingAccelerated(
         const Graph &graph,
-        size_t pathfindingGridRows,
-        size_t pathfindingGridColumns,
+        const PerlinNoiseGenerator &map,
+        const Coordinates &start,
+        const Coordinates &end,
         Timer &timer)
     {
-        std::pair<size_t, size_t> startingCoordinates = Graph::indexToCoordinates(0, 0); // Top-left corner.
-        std::pair<size_t, size_t> endingCoordinates =
-            Graph::indexToCoordinates(pathfindingGridRows - 1, pathfindingGridColumns - 1); // Bottom-right corner.
+        timer.reset();
+        timer.resume();
+        size_t mapRows = map.GRID_ROWS;
+        size_t mapColumns = map.GRID_COLUMNS;
+        size_t endRow = end.row;
+        size_t endColumn = end.column;
 
         struct OpenListElement
         {
             size_t vertexRow;
             size_t vertexColumn;
             VertexID vertexID;
-            Weight distanceToGoal;
-            bool visited;
-            OpenListElement(size_t row, size_t column, VertexID id, Weight distance, bool visited)
-                : vertexRow(row), vertexColumn(column), vertexID(id), distanceToGoal(distance), visited(visited) {}
-        };
-        std::queue<std::shared_ptr<OpenListElement>> openListQueue;
-        std::shared_ptr<OpenListElement> goal = std::make_shared<OpenListElement>(endingCoordinates.first, endingCoordinates.second, Graph::coordinatesToIndex(endingCoordinates.first, endingCoordinates.second, pathfindingGridColumns), 0, false);
-        openListQueue.push(goal);
+            Weight weightToGoal;
 
-        std::vector<std::shared_ptr<OpenListElement>> openListVector;
-        openListVector.resize(graph.vertexCount);
-        for (size_t i = 0; i < graph.vertexCount; ++i)
+            OpenListElement(size_t row, size_t column, VertexID id, Weight distance)
+                : vertexRow(row),
+                  vertexColumn(column),
+                  vertexID(id),
+                  weightToGoal(distance) {}
+        };
+
+        std::queue<std::shared_ptr<OpenListElement>> openQueue;
+        std::shared_ptr<OpenListElement> goal = std::make_shared<OpenListElement>(
+            endRow,
+            endColumn,
+            Graph::coordinatesToIndex(endRow, endColumn, mapColumns),
+            0);
+        openQueue.push(goal);
+
+        std::vector<std::shared_ptr<OpenListElement>> closedList;
+        closedList.resize(graph.vertexCount);
+        for (size_t vertex = 0; vertex < graph.vertexCount; ++vertex)
         {
-            std::pair<size_t, size_t> coordinates = Graph::indexToCoordinates(i, pathfindingGridColumns);
-            size_t row = coordinates.first;
-            size_t column = coordinates.second;
-            if (row == endingCoordinates.first && column == endingCoordinates.second)
+            Coordinates coordinates = Graph::indexToCoordinates(vertex, mapColumns);
+            if (coordinates.row == endRow && coordinates.column == endColumn)
             {
-                openListVector[i] = goal;
+                closedList[vertex] = goal;
             }
             else
             {
-                openListVector[i] = (std::make_shared<OpenListElement>(row, column, i, 0, false));
+                closedList[vertex] = std::make_shared<OpenListElement>(
+                    coordinates.row,
+                    coordinates.column,
+                    vertex,
+                    Graph::INFINITE_WEIGHT);
             }
         }
 
-        Graph::PathfindingGrid pathfindingGrid = graph.asGrid(pathfindingGridRows, pathfindingGridColumns);
-
-        while (!openListQueue.empty())
+        // Generating the integration field.
+        while (!openQueue.empty())
         {
-            std::shared_ptr<OpenListElement> current = openListQueue.front();
-            openListQueue.pop();
+            std::shared_ptr<OpenListElement> current = openQueue.front();
+            openQueue.pop();
             size_t vertexIndex = current->vertexID;
             for (const auto &[directionRow, directionColumn] : Graph::PATHFINDING_GRID_DIRECTIONS)
             {
                 int neighborRow = current->vertexRow + directionRow;
                 int neighborColumn = current->vertexColumn + directionColumn;
-                if (Graph::isValidDirection(neighborRow, neighborColumn, pathfindingGridRows, pathfindingGridColumns))
+                if (Graph::isValidDirection(neighborRow, neighborColumn, mapRows, mapColumns))
                 {
-                    size_t neighborIndex = Graph::coordinatesToIndex(neighborRow, neighborColumn, pathfindingGridColumns);
-                    std::shared_ptr<OpenListElement> neighbor = openListVector[neighborIndex];
-
-                    if (current->distanceToGoal > neighbor->distanceToGoal + 1)
+                    size_t neighborIndex = Graph::coordinatesToIndex(neighborRow, neighborColumn, mapColumns);
+                    Weight neighborWeight = map.grid[neighborRow][neighborColumn];
+                    std::shared_ptr<OpenListElement> neighbor = closedList[neighborIndex];
+                    if (neighborWeight + current->weightToGoal < neighbor->weightToGoal)
                     {
-                        current->distanceToGoal = neighbor->distanceToGoal + 1;
-                    }
-                    if (!neighbor->visited)
-                    {
-                        neighbor->visited = true;
-                        openListQueue.push(neighbor);
+                        neighbor->weightToGoal = neighborWeight + current->weightToGoal;
+                        openQueue.push(neighbor);
                     }
                 }
             }
         }
 
-        // iterate over openListVector
-        PPMImage *image = new PPMImage(pathfindingGridRows, pathfindingGridColumns, 1.0f);
-        for (size_t i = 0; i < openListVector.size(); ++i)
+        // Generating the flow field.
+        Weight *integrationField;
+        cudaMallocManaged(&integrationField, closedList.size() * sizeof(Weight));
+        for (size_t vertex = 0; vertex < closedList.size(); ++vertex)
         {
-            std::shared_ptr<OpenListElement> current = openListVector[i];
-            std::pair<size_t, size_t> coordinates = Graph::indexToCoordinates(i, pathfindingGridColumns);
-            size_t row = coordinates.first;
-            size_t column = coordinates.second;
-            // scale the distance to a color
-            ColorChannel intensity = current->distanceToGoal * 255 / 1000;
-
-            RGBPixel color = {intensity, 0, 0};
-            image->setPixel(column, row, color);
+            integrationField[vertex] = closedList[vertex]->weightToGoal;
         }
-        image->save("vector_field_pathfinding.ppm");
 
-        return std::vector<VertexID>();
+        FlowFieldDirection *flowField;
+        cudaMallocManaged(&flowField, closedList.size() * sizeof(FlowFieldDirection));
+
+        dim3 dimGrid((closedList.size() + MAX_THREADS_PER_BLOCK - 1) / MAX_THREADS_PER_BLOCK, 1, 1);
+        dim3 dimBlock(MAX_THREADS_PER_BLOCK, 1, 1);
+        generateFlowField<<<dimGrid, dimBlock>>>(integrationField, flowField, mapRows, mapColumns, closedList.size());
+        cudaDeviceSynchronize();
+
+        // Reconstructing the path.
+        Coordinates currentCoordinates = start;
+        std::vector<VertexID> path;
+        while (currentCoordinates.row != end.row && currentCoordinates.column != end.row)
+        {
+            size_t currentIndex = Graph::coordinatesToIndex(currentCoordinates.row, currentCoordinates.column, mapColumns);
+            FlowFieldDirection currentDirection = flowField[currentIndex];
+            path.push_back(currentIndex);
+            switch (currentDirection)
+            {
+            case FlowFieldDirection::UP:
+                currentCoordinates.row--;
+                break;
+            case FlowFieldDirection::DOWN:
+                currentCoordinates.row++;
+                break;
+            case FlowFieldDirection::LEFT:
+                currentCoordinates.column--;
+                break;
+            case FlowFieldDirection::RIGHT:
+                currentCoordinates.column++;
+                break;
+            case FlowFieldDirection::UP_LEFT:
+                currentCoordinates.row--;
+                currentCoordinates.column--;
+                break;
+            case FlowFieldDirection::UP_RIGHT:
+                currentCoordinates.row--;
+                currentCoordinates.column++;
+                break;
+            case FlowFieldDirection::DOWN_LEFT:
+                currentCoordinates.row++;
+                currentCoordinates.column--;
+                break;
+            case FlowFieldDirection::DOWN_RIGHT:
+                currentCoordinates.row++;
+                currentCoordinates.column++;
+                break;
+            default:
+                break;
+            }
+        }
+        timer.pause();
+        return path;
     }
-
-    // ----------------------------------------------------------------
-    // --- Vector field pathfinding algorithm in CPU
-
-    // [[nodiscard]] __host__ inline std::vector<VertexID> vectorFieldPathfindingCPU(
-    //     const Graph &graph,
-    //     VertexID start,
-    //     VertexID end,
-    //     Timer &timer)
-    // {
-    // }
 
     // ----------------------------------------------------------------
     // --- Dijkstra's's algorithm in CUDA
@@ -257,6 +355,9 @@ namespace pathfinding
         VertexID endingVertex,
         Timer &timer)
     {
+        timer.reset();
+        timer.resume();
+
         size_t vertexCount = graph.vertexCount;
 
         Weight *shortestDistances;
@@ -314,8 +415,6 @@ namespace pathfinding
         dim3 dimGrid((vertexCount + MAX_THREADS_PER_BLOCK - 1) / MAX_THREADS_PER_BLOCK, 1, 1);
         dim3 dimBlock(MAX_THREADS_PER_BLOCK, 1, 1);
 
-        timer.reset();
-        timer.resume();
         while (!allVerticesFinalized(activeVertices, vertexCount))
         {
             relaxEdges<<<dimGrid, dimBlock>>>(
@@ -342,7 +441,6 @@ namespace pathfinding
             cudaDeviceSynchronize();
             cudaCheckError();
         }
-        timer.pause();
 
         std::vector<VertexID> path = reconstructPath(predecessor, startingVertex, endingVertex);
 
@@ -354,6 +452,7 @@ namespace pathfinding
         cudaFree(d_edgesOffsets);
         cudaFree(d_edgesSize);
 
+        timer.pause();
         return path;
     }
 
@@ -366,6 +465,9 @@ namespace pathfinding
         VertexID end,
         Timer &timer)
     {
+        timer.reset();
+        timer.resume();
+
         size_t vertexCount = graph.vertexCount;
         std::vector<Weight> shortestDistances(vertexCount, Graph::INFINITE_WEIGHT);
         std::vector<VertexID> predecessor(vertexCount);
@@ -377,8 +479,6 @@ namespace pathfinding
         shortestDistances[start] = 0;
         priorityQueue.push({0, start});
 
-        timer.reset();
-        timer.resume();
         while (!priorityQueue.empty())
         {
             VertexID currentVertex = priorityQueue.top().second;
@@ -407,8 +507,8 @@ namespace pathfinding
                 }
             }
         }
-        timer.pause();
         std::vector<VertexID> path = reconstructPath(predecessor.data(), start, end);
+        timer.pause();
         return path;
     }
 }

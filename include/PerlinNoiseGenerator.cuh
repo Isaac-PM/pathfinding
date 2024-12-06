@@ -8,6 +8,12 @@
 
 namespace procedural_generation
 {
+    struct Coordinates
+    {
+        size_t row;
+        size_t column;
+    };
+
     class PerlinNoiseGenerator
     {
         /*
