@@ -34,14 +34,50 @@ Once the points are awarded, the round results are stored and the game continues
 
 ## Building and Running the Project
 
-## References
+To run the project, the NVIDIA CUDA Toolkit must be installed. The compilation process is handled with CMake as follows:
+
+```bash
+# Clone the repository
+# Navigate to the project directory
+mkdir build
+cd build
+cmake ..
+make
+./pathfinding
+```
+
+The above will give this expected output:
+
+```
+Benchmarking strategies...
+Run 1...
+Run 2...
+Run 3...
+Best strategy: 2 with an average time of 119 milliseconds.
+Average strategy: 1 with an average time of 261 milliseconds.
+Worst strategy: 3 with an average time of 415 milliseconds.
+
+Round 1...
+Player 1: 2...
+Player 1: 2 with 10 points.
+Player 2: 2...
+Player 2: 2 with 10 points.
+
+...
+```
+
+Once the game is finished, the Streamlit application can be run as follows:
+
+```bash
+# Move to the analysis directory
+python3 -m venv env
+source env/bin/activate
+pip install -r requirements.txt
+streamlit run main.py
+```
+
+Which will open a browser window:
+
+<img src="streamlit.png" width="600px">
 
 [^1]: Martín, P. J., Torres, R., & Gavilanes, A. (2009). CUDA solutions for the SSSP problem. In Lecture notes in computer science (pp. 904–913). https://doi.org/10.1007/978-3-642-01970-8_91
-
-[^2]: Vitality. (n.d.). Dijkstra’s algorithm in CUDA. Stack Overflow. https://stackoverflow.com/questions/12763991/dijkstras-algorithm-in-cuda
-
-[^3]: PDN - PasDeNom. (2020, October 25). How do vector field Pathfinding algorithm work ? [Video]. YouTube. https://www.youtube.com/watch?v=ZJZu3zLMYAc
-
-[^4]: Turbo Makes Games. (2020, August 4). How Flow Field Pathfinding Works - Flow Fields in Unity ep. 1 [Video]. YouTube. https://www.youtube.com/watch?v=zr6ObNVgytk
-
-[^5]: Woestijnbok. (n.d.). GitHub - Woestijnbok/Vector-Flow-Field: This project showcases and explains the upsides and downsides of the vector flow field pathfinding algorithm. GitHub. https://github.com/Woestijnbok/Vector-Flow-Field
