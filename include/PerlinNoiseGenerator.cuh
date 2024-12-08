@@ -24,6 +24,7 @@ namespace procedural_generation
         // --- Public class constants
         static const uint GRID_ROWS = 1000;
         static const uint GRID_COLUMNS = 1000;
+        static const uint DEFAULT_OCTAVE_COUNT = 12;
 
         // ----------------------------------------------------------------
         // --- Public methods
@@ -31,7 +32,7 @@ namespace procedural_generation
         __host__ PerlinNoiseGenerator(uint userSeed = 0);
 
         [[nodiscard]] __host__ static PerlinNoiseGenerator *generateAndSave(
-            uint octaveCount = 12,
+            uint octaveCount = DEFAULT_OCTAVE_COUNT,
             const std::string &outputName = "noise");
 
         __host__ graphics::PPMImage *asBlackAndWhiteImage() const;

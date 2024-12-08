@@ -80,7 +80,7 @@ namespace pathfinding
 
         Coordinates currentCoordinates = Graph::indexToCoordinates(idx, columns);
         FlowFieldDirection bestDirection = FlowFieldDirection::NONE;
-        Weight minWeight = INFINITY;
+        Weight minWeight = Graph::INFINITE_WEIGHT;
         for (size_t i = 0; i < 8; ++i)
         {
             int neighborRow = currentCoordinates.row + directions[i][0];
@@ -181,24 +181,27 @@ namespace pathfinding
 
         // Generating the flow field.
         Weight *integrationField;
-        cudaMallocManaged(&integrationField, closedList.size() * sizeof(Weight));
-        for (size_t vertex = 0; vertex < closedList.size(); ++vertex)
+        cudaMallocManaged(&integrationField, graph.vertexCount * sizeof(Weight));
+        cudaCheckError();
+        for (size_t vertex = 0; vertex < graph.vertexCount; ++vertex)
         {
             integrationField[vertex] = closedList[vertex]->weightToGoal;
         }
 
         FlowFieldDirection *flowField;
-        cudaMallocManaged(&flowField, closedList.size() * sizeof(FlowFieldDirection));
+        cudaMallocManaged(&flowField, graph.vertexCount * sizeof(FlowFieldDirection));
+        cudaCheckError();
 
-        dim3 dimGrid((closedList.size() + MAX_THREADS_PER_BLOCK - 1) / MAX_THREADS_PER_BLOCK, 1, 1);
+        dim3 dimGrid((graph.vertexCount + MAX_THREADS_PER_BLOCK - 1) / MAX_THREADS_PER_BLOCK, 1, 1);
         dim3 dimBlock(MAX_THREADS_PER_BLOCK, 1, 1);
-        generateFlowField<<<dimGrid, dimBlock>>>(integrationField, flowField, mapRows, mapColumns, closedList.size());
+        generateFlowField<<<dimGrid, dimBlock>>>(integrationField, flowField, mapRows, mapColumns, graph.vertexCount);
         cudaDeviceSynchronize();
+        cudaCheckError();
 
         // Reconstructing the path.
         Coordinates currentCoordinates = start;
         std::vector<VertexID> path;
-        while (currentCoordinates.row != end.row && currentCoordinates.column != end.row)
+        while (currentCoordinates.row != end.row || currentCoordinates.column != end.column)
         {
             size_t currentIndex = Graph::coordinatesToIndex(currentCoordinates.row, currentCoordinates.column, mapColumns);
             FlowFieldDirection currentDirection = flowField[currentIndex];
@@ -237,6 +240,8 @@ namespace pathfinding
                 break;
             }
         }
+        cudaFree(integrationField);
+        cudaFree(flowField);
         timer.pause();
         return path;
     }
@@ -262,11 +267,14 @@ namespace pathfinding
         updatingShortestDistances[startingVertex] = 0;
         activeVertices[startingVertex] = true;
 
-        for (size_t vertex = 1; vertex < vertexCount; ++vertex)
+        for (size_t vertex = 0; vertex < vertexCount; ++vertex)
         {
-            shortestDistances[vertex] = Graph::INFINITE_WEIGHT;
-            updatingShortestDistances[vertex] = Graph::INFINITE_WEIGHT;
-            activeVertices[vertex] = false;
+            if (vertex != startingVertex)
+            {
+                shortestDistances[vertex] = Graph::INFINITE_WEIGHT;
+                updatingShortestDistances[vertex] = Graph::INFINITE_WEIGHT;
+                activeVertices[vertex] = false;
+            }
         }
     }
 
@@ -376,6 +384,7 @@ namespace pathfinding
         */
         VertexID *predecessor;
         cudaMallocManaged(&predecessor, vertexCount * sizeof(VertexID));
+        cudaCheckError();
 
         /*
         A boolean array marking vertices currently active for processing.
@@ -446,6 +455,7 @@ namespace pathfinding
 
         cudaFree(shortestDistances);
         cudaFree(updatingShortestDistances);
+        cudaFree(predecessor);
         cudaFree(activeVertices);
         cudaFree(d_adjacencyList);
         cudaFree(d_weights);
