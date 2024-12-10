@@ -16,7 +16,7 @@ First, the game benchmarks each of the available pathfinding algorithms, which a
 - DCP: Dijkstra's algorithm (CPU)
 - DCU: Dijkstra's Algorithm (CUDA)
 
-All algorithms return the same result, as Flow Field is basically the same as Dijkstra's algorithm, the only difference is that Flow Field computes only the shortest path between the start and end point, while Dijkstra's algorithm computes the shortest path between all nodes in the graph. 
+All algorithms return the same result, as Flow Field is basically the same as Dijkstra's algorithm.
 
 At the beginning, each algorithm is benchmarked using the best available GPU and classified into best, average, and worst according to the time taken by each algorithm. Usually DCP performs the best, this is explained by comments on the code, followed by FFP, and DCU which performs the worst, the reasons for DCU's performance can be further studied in the attached paper[^1]; this behavior is expected according to the O-complexity of each.
 
